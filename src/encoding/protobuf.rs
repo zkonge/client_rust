@@ -288,6 +288,98 @@ impl MetricEncoder<'_> {
 
         Ok(())
     }
+
+    /// Encode a native histogram with exponential buckets.
+    pub fn encode_native_histogram<S: EncodeLabelSet>(
+        &mut self,
+        sum: f64,
+        count: u64,
+        zero_count: u64,
+        zero_threshold: f64,
+        schema: i32,
+        positive_buckets: &[(i32, u64)],
+        negative_buckets: &[(i32, u64)],
+    ) -> Result<(), std::fmt::Error> {
+        // For protobuf encoding, we'll encode it similarly to regular histograms for now
+        // In the future, this could use the native histogram protobuf format if defined
+        
+        // Convert sparse buckets to dense format for compatibility
+        let mut all_buckets = Vec::new();
+        
+        // Add negative buckets (in reverse order, as boundaries)
+        for (idx, cnt) in negative_buckets.iter().rev() {
+            let boundary = bucket_index_to_boundary(*idx, schema);
+            all_buckets.push((-boundary, *cnt));
+        }
+        
+        // Add zero bucket
+        if zero_count > 0 {
+            all_buckets.push((zero_threshold, zero_count));
+        }
+        
+        // Add positive buckets
+        for (idx, cnt) in positive_buckets {
+            let boundary = bucket_index_to_boundary(*idx, schema);
+            all_buckets.push((boundary, *cnt));
+        }
+        
+        // Sort by boundary
+        all_buckets.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        
+        // Convert to cumulative counts
+        let buckets = all_buckets
+            .iter()
+            .scan(0u64, |cumulative, (upper_bound, count)| {
+                *cumulative += count;
+                Some(openmetrics_data_model::histogram_value::Bucket {
+                    upper_bound: *upper_bound,
+                    count: *cumulative,
+                    exemplar: None,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        self.family.push(openmetrics_data_model::Metric {
+            labels: self.labels.clone(),
+            metric_points: vec![openmetrics_data_model::MetricPoint {
+                value: Some(openmetrics_data_model::metric_point::Value::HistogramValue(
+                    openmetrics_data_model::HistogramValue {
+                        count,
+                        created: None,
+                        buckets,
+                        sum: Some(openmetrics_data_model::histogram_value::Sum::DoubleValue(
+                            sum,
+                        )),
+                    },
+                )),
+                ..Default::default()
+            }],
+        });
+
+        Ok(())
+    }
+}
+
+/// Convert a bucket index to its upper boundary value.
+fn bucket_index_to_boundary(index: i32, schema: i32) -> f64 {
+    if schema > 0 {
+        let bounds_per_power = match schema {
+            1 => 2,
+            2 => 4,
+            3 => 8,
+            4 => 16,
+            5 => 32,
+            6 => 64,
+            7 => 128,
+            8 => 256,
+            _ => 1,
+        };
+        let power = index / bounds_per_power;
+        let frac_index = index % bounds_per_power;
+        2.0_f64.powi(power) * (1.0 + frac_index as f64 / bounds_per_power as f64)
+    } else {
+        2.0_f64.powi(index << -schema)
+    }
 }
 
 impl<S: EncodeLabelSet, V: EncodeExemplarValue> TryFrom<&Exemplar<S, V>>

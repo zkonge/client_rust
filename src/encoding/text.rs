@@ -444,6 +444,81 @@ impl MetricEncoder<'_> {
         Ok(())
     }
 
+    /// Encode a native histogram with exponential buckets.
+    pub fn encode_native_histogram<S: EncodeLabelSet>(
+        &mut self,
+        sum: f64,
+        count: u64,
+        zero_count: u64,
+        zero_threshold: f64,
+        schema: i32,
+        positive_buckets: &[(i32, u64)],
+        negative_buckets: &[(i32, u64)],
+    ) -> Result<(), std::fmt::Error> {
+        // Encode sum
+        self.write_prefix_name_unit()?;
+        self.write_suffix("sum")?;
+        self.encode_labels::<NoLabelSet>(None)?;
+        self.writer.write_str(" ")?;
+        self.writer.write_str(dtoa::Buffer::new().format(sum))?;
+        self.newline()?;
+
+        // Encode count
+        self.write_prefix_name_unit()?;
+        self.write_suffix("count")?;
+        self.encode_labels::<NoLabelSet>(None)?;
+        self.writer.write_str(" ")?;
+        self.writer.write_str(itoa::Buffer::new().format(count))?;
+        self.newline()?;
+
+        // Encode native histogram specific fields
+        // Schema
+        self.write_prefix_name_unit()?;
+        self.write_suffix("schema")?;
+        self.encode_labels::<NoLabelSet>(None)?;
+        self.writer.write_str(" ")?;
+        self.writer.write_str(itoa::Buffer::new().format(schema))?;
+        self.newline()?;
+
+        // Zero threshold
+        self.write_prefix_name_unit()?;
+        self.write_suffix("zero_threshold")?;
+        self.encode_labels::<NoLabelSet>(None)?;
+        self.writer.write_str(" ")?;
+        self.writer.write_str(dtoa::Buffer::new().format(zero_threshold))?;
+        self.newline()?;
+
+        // Zero count
+        self.write_prefix_name_unit()?;
+        self.write_suffix("zero_count")?;
+        self.encode_labels::<NoLabelSet>(None)?;
+        self.writer.write_str(" ")?;
+        self.writer.write_str(itoa::Buffer::new().format(zero_count))?;
+        self.newline()?;
+
+        // Encode positive buckets
+        for (bucket_index, count) in positive_buckets {
+            self.write_prefix_name_unit()?;
+            self.write_suffix("bucket")?;
+            self.encode_labels(Some(&[("le", bucket_index_to_boundary(*bucket_index, schema))]))?;
+            self.writer.write_str(" ")?;
+            self.writer.write_str(itoa::Buffer::new().format(*count))?;
+            self.newline()?;
+        }
+
+        // Encode negative buckets
+        for (bucket_index, count) in negative_buckets {
+            self.write_prefix_name_unit()?;
+            self.write_suffix("bucket")?;
+            self.encode_labels(Some(&[("le", bucket_index_to_boundary(*bucket_index, schema))]))?;
+            self.writer.write_str(" ")?;
+            self.writer.write_str(itoa::Buffer::new().format(*count))?;
+            self.newline()?;
+        }
+
+        Ok(())
+    }
+
     /// Encode an exemplar for the given metric.
     fn encode_exemplar<S: EncodeLabelSet, V: EncodeExemplarValue>(
         &mut self,
@@ -730,6 +805,33 @@ impl LabelValueEncoder<'_> {
 impl std::fmt::Write for LabelValueEncoder<'_> {
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
         self.writer.write_str(s)
+    }
+}
+
+/// Convert a bucket index to its upper boundary value for display.
+///
+/// This is a helper function for encoding native histograms. It converts
+/// the internal bucket index to the actual upper bound value.
+fn bucket_index_to_boundary(index: i32, schema: i32) -> f64 {
+    if schema > 0 {
+        // For positive schemas, calculate using the precomputed bounds
+        let bounds_per_power = match schema {
+            1 => 2,
+            2 => 4,
+            3 => 8,
+            4 => 16,
+            5 => 32,
+            6 => 64,
+            7 => 128,
+            8 => 256,
+            _ => 1,
+        };
+        let power = index / bounds_per_power;
+        let frac_index = index % bounds_per_power;
+        2.0_f64.powi(power) * (1.0 + frac_index as f64 / bounds_per_power as f64)
+    } else {
+        // For non-positive schemas
+        2.0_f64.powi(index << -schema)
     }
 }
 
