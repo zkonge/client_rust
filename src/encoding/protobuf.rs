@@ -32,6 +32,7 @@ pub mod openmetrics_data_model {
 
 use std::{borrow::Cow, collections::HashMap};
 
+use crate::metrics::histogram::bucket_index_to_boundary;
 use crate::metrics::MetricType;
 use crate::registry::{Registry, Unit};
 use crate::{metrics::exemplar::Exemplar, registry::Prefix};
@@ -357,28 +358,6 @@ impl MetricEncoder<'_> {
         });
 
         Ok(())
-    }
-}
-
-/// Convert a bucket index to its upper boundary value.
-fn bucket_index_to_boundary(index: i32, schema: i32) -> f64 {
-    if schema > 0 {
-        let bounds_per_power = match schema {
-            1 => 2,
-            2 => 4,
-            3 => 8,
-            4 => 16,
-            5 => 32,
-            6 => 64,
-            7 => 128,
-            8 => 256,
-            _ => 1,
-        };
-        let power = index / bounds_per_power;
-        let frac_index = index % bounds_per_power;
-        2.0_f64.powi(power) * (1.0 + frac_index as f64 / bounds_per_power as f64)
-    } else {
-        2.0_f64.powi(index << -schema)
     }
 }
 

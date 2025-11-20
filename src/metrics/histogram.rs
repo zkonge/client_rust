@@ -495,32 +495,53 @@ fn pick_schema(bucket_factor: f64) -> i32 {
 /// The bucket index represents which exponential bucket the value falls into.
 /// Index 0 corresponds to values in the range [1, base) where base = 2^(2^-schema).
 fn calculate_bucket_index(value: f64, schema: i32) -> i32 {
-    if value <= 0.0 || value.is_nan() || value.is_infinite() {
-        // Handle edge cases
-        if value.is_infinite() && value.is_sign_positive() {
-            return i32::MAX;
-        } else if value.is_infinite() {
-            return i32::MIN;
-        }
+    // Handle special cases
+    if value.is_nan() {
+        return 0;
+    }
+    
+    if value.is_infinite() {
+        return if value.is_sign_positive() { i32::MAX } else { i32::MIN };
+    }
+    
+    if value == 0.0 {
         return 0;
     }
 
+    // Work with absolute value - caller handles sign
+    let abs_value = value.abs();
+
     // Get the fractional part (0.5 <= frac < 1.0) and exponent
-    let (frac, exp) = frexp(value);
+    let (frac, exp) = frexp(abs_value);
 
     if schema > 0 {
         // For positive schema, use binary search in precomputed bounds
         let bounds = get_native_histogram_bounds(schema);
-        let frac_index = bounds.iter().position(|&b| frac < b).unwrap_or(bounds.len());
+        // Binary search for the first bound >= frac
+        let frac_index = match bounds.binary_search_by(|&b| {
+            if b < frac {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            }
+        }) {
+            Ok(idx) => idx,
+            Err(idx) => idx,
+        };
         frac_index as i32 + (exp - 1) * bounds.len() as i32
     } else {
         // For non-positive schema, use a simpler calculation
+        // Protect against i32::MIN overflow
+        if schema == i32::MIN {
+            return 0;
+        }
+        
         let mut key = exp;
         if frac == 0.5 {
             key -= 1;
         }
-        let offset = (1 << -schema) - 1;
-        (key + offset) >> -schema
+        let offset = (1 << (-schema)) - 1;
+        (key + offset) >> (-schema)
     }
 }
 
@@ -533,10 +554,22 @@ fn frexp(value: f64) -> (f64, i32) {
     let exp_bits = ((bits >> 52) & 0x7FF) as i32;
     
     if exp_bits == 0 {
-        // Subnormal number
-        let normalized = value * 2.0_f64.powi(1022);
-        let (frac, exp) = frexp(normalized);
-        return (frac, exp - 1022);
+        // Subnormal number - normalize it by scaling up
+        // Use a fixed scaling to avoid potential infinite recursion
+        let scale_exp = 64;
+        let normalized = value * 2.0_f64.powi(scale_exp);
+        let normalized_bits = normalized.to_bits();
+        let normalized_exp_bits = ((normalized_bits >> 52) & 0x7FF) as i32;
+        
+        if normalized_exp_bits == 0 {
+            // Still subnormal after scaling - treat as zero
+            return (0.0, 0);
+        }
+        
+        let exp = normalized_exp_bits - 1022 - scale_exp;
+        let frac_bits = (normalized_bits & 0xFFFFFFFFFFFFF) | 0x3FE0000000000000;
+        let frac = f64::from_bits(frac_bits);
+        return (frac, exp);
     }
     
     let exp = exp_bits - 1022; // 1023 (bias) - 1 (for 0.5 <= frac < 1.0)
@@ -547,6 +580,8 @@ fn frexp(value: f64) -> (f64, i32) {
 }
 
 /// Get precomputed bucket boundaries for a given schema.
+///
+/// Panics if schema is not in the valid range [0, 8].
 fn get_native_histogram_bounds(schema: i32) -> &'static [f64] {
     match schema {
         0 => &[0.5],
@@ -690,7 +725,38 @@ fn get_native_histogram_bounds(schema: i32) -> &'static [f64] {
             0.9785720620876999, 0.9813013309986821, 0.9838849683520958, 0.9866310309750134,
             0.9892280131939752, 0.9920013318369795, 0.9946017579039926, 0.9974029367376888,
         ],
-        _ => &[0.5], // Fallback for invalid schemas
+        _ => panic!("Invalid schema: {}. Schema must be in the range [0, 8]", schema),
+    }
+}
+
+/// Convert a bucket index to its upper boundary value for display.
+///
+/// This helper function converts the internal bucket index to the actual
+/// upper bound value for encoding purposes.
+pub(crate) fn bucket_index_to_boundary(index: i32, schema: i32) -> f64 {
+    if schema > 0 {
+        // For positive schemas, calculate using the precomputed bounds
+        let bounds_per_power = match schema {
+            1 => 2,
+            2 => 4,
+            3 => 8,
+            4 => 16,
+            5 => 32,
+            6 => 64,
+            7 => 128,
+            8 => 256,
+            _ => 1,
+        };
+        let power = index / bounds_per_power;
+        let frac_index = index % bounds_per_power;
+        2.0_f64.powi(power) * (1.0 + frac_index as f64 / bounds_per_power as f64)
+    } else {
+        // For non-positive schemas
+        // Protect against overflow
+        if schema == i32::MIN {
+            return 2.0_f64.powi(index);
+        }
+        2.0_f64.powi(index << (-schema))
     }
 }
 
