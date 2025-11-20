@@ -21,6 +21,39 @@ applications with monitoring systems like [Prometheus](https://prometheus.io/).
 - Fast. Don't force users to worry about the performance impact of
   instrumentation. Instead encourage users to instrument often and extensively.
 
+## Features
+
+### Native Histograms
+
+This library supports [Prometheus Native Histograms](https://prometheus.io/docs/concepts/metric_types/#histogram), 
+which provide high-resolution measurement of distributions using exponential bucketing. 
+Unlike traditional histograms with fixed bucket boundaries, native histograms automatically 
+adapt to the distribution of observed values.
+
+```rust
+use prometheus_client::metrics::histogram::NativeHistogram;
+use prometheus_client::registry::Registry;
+
+let mut registry = Registry::default();
+
+// Create a native histogram with default settings (bucket factor 1.1)
+let latency = NativeHistogram::new();
+registry.register("request_latency", "Request latency in seconds", latency.clone());
+
+// Observe some values
+latency.observe(0.005);  // 5ms
+latency.observe(0.150);  // 150ms
+latency.observe(2.500);  // 2.5s
+```
+
+Key benefits:
+- **Automatic bucketing**: No need to pre-configure bucket boundaries
+- **High resolution**: Configurable precision via bucket factor
+- **Efficient storage**: Sparse representation only stores non-empty buckets
+- **Wide range**: Handles values from near-zero to very large automatically
+
+See the [native_histogram example](examples/native_histogram.rs) for more details.
+
 ## Specification Compliance
 
 Below is a list of properties where this client library implementation lags

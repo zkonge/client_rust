@@ -232,17 +232,63 @@ const NATIVE_HISTOGRAM_SCHEMA_MIN: i32 = -4;
 /// buckets, native histograms automatically adjust their bucket boundaries based
 /// on observed values.
 ///
+/// # Examples
+///
+/// ## Basic usage with default settings
+///
 /// ```
 /// # use prometheus_client::metrics::histogram::NativeHistogram;
+/// # use prometheus_client::registry::Registry;
+/// # use prometheus_client::encoding::text::encode;
+/// let mut registry = Registry::default();
+/// 
+/// // Create with default bucket factor of 1.1 (8 buckets per power of two)
 /// let histogram = NativeHistogram::new();
-/// histogram.observe(4.2);
-/// histogram.observe(0.001);
-/// histogram.observe(1000.0);
+/// registry.register(
+///     "request_duration",
+///     "Request duration in seconds",
+///     histogram.clone()
+/// );
+/// 
+/// // Record observations
+/// histogram.observe(0.005);  // 5ms
+/// histogram.observe(0.150);  // 150ms
+/// histogram.observe(2.500);  // 2.5s
+///
+/// // Encode metrics
+/// let mut buffer = String::new();
+/// encode(&mut buffer, &registry).unwrap();
 /// ```
+///
+/// ## Higher precision measurements
+///
+/// ```
+/// # use prometheus_client::metrics::histogram::NativeHistogram;
+/// // Use bucket factor 1.05 for ~16 buckets per power of two (higher precision)
+/// let precise_histogram = NativeHistogram::with_bucket_factor(1.05);
+/// precise_histogram.observe(1.234);
+/// ```
+///
+/// ## Custom zero threshold
+///
+/// ```
+/// # use prometheus_client::metrics::histogram::NativeHistogram;
+/// // Values <= 0.001 will be accumulated in the zero bucket
+/// let histogram = NativeHistogram::with_zero_threshold(1.1, 0.001);
+/// histogram.observe(0.0005);  // Goes to zero bucket
+/// histogram.observe(0.002);   // Goes to regular bucket
+/// ```
+///
+/// # Bucket Factor
 ///
 /// The bucket factor determines the resolution - smaller values provide more buckets
 /// and higher accuracy at the cost of memory. A factor of 1.1 (default) provides a
 /// good balance, dividing each power of two into 8 buckets.
+///
+/// Common values:
+/// - 1.1 (default): 8 buckets per power of two
+/// - 1.05: ~16 buckets per power of two (higher precision)
+/// - 1.2: ~4 buckets per power of two (lower precision, less memory)
 #[derive(Debug)]
 pub struct NativeHistogram {
     inner: Arc<RwLock<NativeInner>>,
