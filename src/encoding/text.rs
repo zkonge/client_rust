@@ -39,7 +39,6 @@
 
 use crate::encoding::{EncodeExemplarTime, EncodeExemplarValue, EncodeLabelSet, NoLabelSet};
 use crate::metrics::exemplar::Exemplar;
-use crate::metrics::histogram::bucket_index_to_boundary;
 use crate::metrics::MetricType;
 use crate::registry::{Prefix, Registry, Unit};
 
@@ -439,81 +438,6 @@ impl MetricEncoder<'_> {
                 self.encode_exemplar(exemplar)?
             }
 
-            self.newline()?;
-        }
-
-        Ok(())
-    }
-
-    /// Encode a native histogram with exponential buckets.
-    pub fn encode_native_histogram<S: EncodeLabelSet>(
-        &mut self,
-        sum: f64,
-        count: u64,
-        zero_count: u64,
-        zero_threshold: f64,
-        schema: i32,
-        positive_buckets: &[(i32, u64)],
-        negative_buckets: &[(i32, u64)],
-    ) -> Result<(), std::fmt::Error> {
-        // Encode sum
-        self.write_prefix_name_unit()?;
-        self.write_suffix("sum")?;
-        self.encode_labels::<NoLabelSet>(None)?;
-        self.writer.write_str(" ")?;
-        self.writer.write_str(dtoa::Buffer::new().format(sum))?;
-        self.newline()?;
-
-        // Encode count
-        self.write_prefix_name_unit()?;
-        self.write_suffix("count")?;
-        self.encode_labels::<NoLabelSet>(None)?;
-        self.writer.write_str(" ")?;
-        self.writer.write_str(itoa::Buffer::new().format(count))?;
-        self.newline()?;
-
-        // Encode native histogram specific fields
-        // Schema
-        self.write_prefix_name_unit()?;
-        self.write_suffix("schema")?;
-        self.encode_labels::<NoLabelSet>(None)?;
-        self.writer.write_str(" ")?;
-        self.writer.write_str(itoa::Buffer::new().format(schema))?;
-        self.newline()?;
-
-        // Zero threshold
-        self.write_prefix_name_unit()?;
-        self.write_suffix("zero_threshold")?;
-        self.encode_labels::<NoLabelSet>(None)?;
-        self.writer.write_str(" ")?;
-        self.writer.write_str(dtoa::Buffer::new().format(zero_threshold))?;
-        self.newline()?;
-
-        // Zero count
-        self.write_prefix_name_unit()?;
-        self.write_suffix("zero_count")?;
-        self.encode_labels::<NoLabelSet>(None)?;
-        self.writer.write_str(" ")?;
-        self.writer.write_str(itoa::Buffer::new().format(zero_count))?;
-        self.newline()?;
-
-        // Encode positive buckets
-        for (bucket_index, count) in positive_buckets {
-            self.write_prefix_name_unit()?;
-            self.write_suffix("bucket")?;
-            self.encode_labels(Some(&[("le", bucket_index_to_boundary(*bucket_index, schema))]))?;
-            self.writer.write_str(" ")?;
-            self.writer.write_str(itoa::Buffer::new().format(*count))?;
-            self.newline()?;
-        }
-
-        // Encode negative buckets
-        for (bucket_index, count) in negative_buckets {
-            self.write_prefix_name_unit()?;
-            self.write_suffix("bucket")?;
-            self.encode_labels(Some(&[("le", bucket_index_to_boundary(*bucket_index, schema))]))?;
-            self.writer.write_str(" ")?;
-            self.writer.write_str(itoa::Buffer::new().format(*count))?;
             self.newline()?;
         }
 

@@ -198,25 +198,6 @@ impl MetricEncoder<'_> {
         )
     }
 
-    /// Encode a native histogram.
-    pub fn encode_native_histogram<S: EncodeLabelSet>(
-        &mut self,
-        sum: f64,
-        count: u64,
-        zero_count: u64,
-        zero_threshold: f64,
-        schema: i32,
-        positive_buckets: &[(i32, u64)],
-        negative_buckets: &[(i32, u64)],
-    ) -> Result<(), std::fmt::Error> {
-        for_both_mut!(
-            self,
-            MetricEncoderInner,
-            e,
-            e.encode_native_histogram::<S>(sum, count, zero_count, zero_threshold, schema, positive_buckets, negative_buckets)
-        )
-    }
-
     /// Encode a metric family.
     pub fn encode_family<'s, S: EncodeLabelSet>(
         &'s mut self,
