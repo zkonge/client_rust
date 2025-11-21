@@ -288,6 +288,39 @@ impl MetricEncoder<'_> {
 
         Ok(())
     }
+
+    /// Encode a native histogram.
+    ///
+    /// Note: OpenMetrics protobuf format doesn't fully support native histograms yet.
+    /// This encodes as a regular histogram for compatibility.
+    pub fn encode_native_histogram<S: EncodeLabelSet>(
+        &mut self,
+        state: crate::metrics::histogram::NativeHistogramState,
+    ) -> Result<(), std::fmt::Error> {
+        // For now, encode as a regular histogram
+        // Future: use proper Prometheus native histogram format when available
+        
+        // Convert sparse buckets to a simple histogram representation
+        // This is a simplified encoding for compatibility
+        self.family.push(openmetrics_data_model::Metric {
+            labels: self.labels.clone(),
+            metric_points: vec![openmetrics_data_model::MetricPoint {
+                value: Some(openmetrics_data_model::metric_point::Value::HistogramValue(
+                    openmetrics_data_model::HistogramValue {
+                        count: state.count,
+                        created: None,
+                        buckets: vec![],  // Simplified for now
+                        sum: Some(openmetrics_data_model::histogram_value::Sum::DoubleValue(
+                            state.sum,
+                        )),
+                    },
+                )),
+                ..Default::default()
+            }],
+        });
+
+        Ok(())
+    }
 }
 
 impl<S: EncodeLabelSet, V: EncodeExemplarValue> TryFrom<&Exemplar<S, V>>

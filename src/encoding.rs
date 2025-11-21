@@ -198,6 +198,19 @@ impl MetricEncoder<'_> {
         )
     }
 
+    /// Encode a native histogram.
+    pub fn encode_native_histogram<S: EncodeLabelSet>(
+        &mut self,
+        state: crate::metrics::histogram::NativeHistogramState,
+    ) -> Result<(), std::fmt::Error> {
+        for_both_mut!(
+            self,
+            MetricEncoderInner,
+            e,
+            e.encode_native_histogram::<S>(state)
+        )
+    }
+
     /// Encode a metric family.
     pub fn encode_family<'s, S: EncodeLabelSet>(
         &'s mut self,

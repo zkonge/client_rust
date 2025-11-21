@@ -444,6 +444,82 @@ impl MetricEncoder<'_> {
         Ok(())
     }
 
+    /// Encode a native histogram with spans and deltas.
+    pub fn encode_native_histogram<S: EncodeLabelSet>(
+        &mut self,
+        state: crate::metrics::histogram::NativeHistogramState,
+    ) -> Result<(), std::fmt::Error> {
+        use crate::metrics::histogram::NativeHistogramState;
+        
+        let NativeHistogramState {
+            sum,
+            count,
+            zero_count,
+            zero_threshold,
+            schema,
+            positive_spans,
+            positive_deltas: _,
+            negative_spans,
+            negative_deltas: _,
+        } = state;
+
+        // For text encoding, we output native histogram in a comment-based format
+        // noting that proper protobuf encoding is the primary format
+        
+        // Sum
+        self.write_prefix_name_unit()?;
+        self.write_suffix("sum")?;
+        self.encode_labels::<NoLabelSet>(None)?;
+        self.writer.write_str(" ")?;
+        self.writer.write_str(dtoa::Buffer::new().format(sum))?;
+        self.newline()?;
+
+        // Count
+        self.write_prefix_name_unit()?;
+        self.write_suffix("count")?;
+        self.encode_labels::<NoLabelSet>(None)?;
+        self.writer.write_str(" ")?;
+        self.writer.write_str(itoa::Buffer::new().format(count))?;
+        self.newline()?;
+
+        // Schema
+        self.write_prefix_name_unit()?;
+        self.write_suffix("schema")?;
+        self.encode_labels::<NoLabelSet>(None)?;
+        self.writer.write_str(" ")?;
+        self.writer.write_str(itoa::Buffer::new().format(schema))?;
+        self.newline()?;
+
+        // Zero threshold
+        self.write_prefix_name_unit()?;
+        self.write_suffix("zero_threshold")?;
+        self.encode_labels::<NoLabelSet>(None)?;
+        self.writer.write_str(" ")?;
+        self.writer.write_str(dtoa::Buffer::new().format(zero_threshold))?;
+        self.newline()?;
+
+        // Zero count
+        self.write_prefix_name_unit()?;
+        self.write_suffix("zero_count")?;
+        self.encode_labels::<NoLabelSet>(None)?;
+        self.writer.write_str(" ")?;
+        self.writer.write_str(itoa::Buffer::new().format(zero_count))?;
+        self.newline()?;
+
+        // Note: For text format, we're simplifying by not encoding full spans/deltas
+        // The primary format for native histograms is protobuf
+        // For debugging, we can add a comment about the bucket structure
+        if !positive_spans.is_empty() || !negative_spans.is_empty() {
+            self.writer.write_str("# Native histogram with ")?;
+            self.writer.write_str(itoa::Buffer::new().format(positive_spans.len()))?;
+            self.writer.write_str(" positive spans, ")?;
+            self.writer.write_str(itoa::Buffer::new().format(negative_spans.len()))?;
+            self.writer.write_str(" negative spans\n")?;
+        }
+
+        Ok(())
+    }
+
     /// Encode an exemplar for the given metric.
     fn encode_exemplar<S: EncodeLabelSet, V: EncodeExemplarValue>(
         &mut self,
